@@ -40,7 +40,7 @@ leitos.cnes <- fetch_datasus(year_start = 2020, month_start = 2,
                               year_end = 2020, month_end = 2,
                               uf = "RS",
                               information_system = "CNES-LT")
-
+leitos.cnes$CODLEITO = as.numeric(as.character(leitos.cnes$CODLEITO))
 # municipio <- read_delim("MUNICIPIO_BRASIL_201902/MUNICIPIO.csv", 
 #     ";", escape_double = FALSE, trim_ws = TRUE)
 # names(municipio)[1] = "CODUFMUN"
@@ -66,7 +66,7 @@ x.cid10 <- read_csv("doc/CID10.csv",
 x.codleito = read_delim("doc/CODLEITO.csv", 
     ";", escape_double = FALSE, col_types = cols(CODLEITO = col_double()),locale = locale(encoding = "ISO-8859-1"), 
     trim_ws = TRUE)
-x.codleito$CODLEITO = as.factor(x.codleito$CODLEITO)
+# x.codleito$CODLEITO = as.factor(x.codleito$CODLEITO)
 
 
 
@@ -78,6 +78,16 @@ leitos.cnes$LEITO = x.codleito[match(leitos.cnes$CODLEITO, x.codleito$CODLEITO),
 
 
 variables_names <- names(leitos.cnes)
+if("TPGESTAO" %in% variables_names){
+    leitos.cnes$TPGESTAO <- as.character(levels(leitos.cnes$TPGESTAO))[leitos.cnes$TPGESTAO]
+    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="D"] <- "DUPLA"
+    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="E"] <- "ESTADUAL"
+    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="M"] <- "MUNICIPAL"
+    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="Z"] <- "SEM GESTAO"
+    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="S"] <- "SEM GESTAO"
+    leitos.cnes$TPGESTAO <- factor(leitos.cnes$TPGESTAO)
+}
+
 if("TPGESTAO" %in% variables_names){
     leitos.cnes$TPGESTAO <- as.character(levels(leitos.cnes$TPGESTAO))[leitos.cnes$TPGESTAO]
     leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="D"] <- "DUPLA"

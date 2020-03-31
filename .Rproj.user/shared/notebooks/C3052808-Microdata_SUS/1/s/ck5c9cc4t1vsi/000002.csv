@@ -1,3 +1,4 @@
+"0","# testando os resultados"
 "0","library(dplyr)"
 "0","View(leitos.cnes %>% filter(MUNICIPIO ==""Ijuí"","
 "0","                            LEITO ==""UTI NEONATAL - TIPO I""))"
