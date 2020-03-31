@@ -1,0 +1,136 @@
+---
+title: "Micro Data SUS"
+author: "Felipe Smolski"
+date: "27/03/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Início
+```{r}
+# devtools::install_github("rpradosiqueira/datasus")
+```
+
+
+```{r}
+# devtools::install_github("rfsaldanha/microdatasus")
+
+# https://github.com/rfsaldanha/microdatasus
+
+# http://www2.datasus.gov.br/DATASUS/index.php?area=0901&item=1&acao=31&pad=31655
+
+# ftp://ftp.datasus.gov.br/dissemin/publicos/
+
+# ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/Dados/
+
+
+
+### LER BASES DBC
+# install.packages("read.dbc")
+library(read.dbc)
+library(microdatasus)
+library(readr)
+library(readxl)
+
+
+leitos.cnes <- fetch_datasus(year_start = 2020, month_start = 2,
+                              year_end = 2020, month_end = 2,
+                              uf = "RS",
+                              information_system = "CNES-LT")
+
+# municipio <- read_delim("MUNICIPIO_BRASIL_201902/MUNICIPIO.csv", 
+#     ";", escape_double = FALSE, trim_ws = TRUE)
+# names(municipio)[1] = "CODUFMUN"
+# names(municipio)[2] = "MUNICIPIO"
+
+# leitos.cnes$CODLEITO = as.numeric(leitos.cnes$CODLEITO)
+
+x.pop <- na.omit(read_delim("doc/populacao.csv", ";", skip = 3,locale = locale(encoding = "ISO-8859-1")))
+x.pop$CODUFMUN = as.factor(x.pop$CODUFMUN)
+
+x.hosp = read_csv("doc/CADGERRS.csv",locale = locale(encoding = "ISO-8859-1"))
+
+# PASTA "Tab_CMD"
+
+x.cid10 <- read_csv("doc/CID10.csv", 
+    locale = locale(encoding = "ISO-8859-1"))
+
+# com erro
+# x.regsaude = read_delim("rs_cnv/RS_REGSAUDE.csv", 
+#     ";", escape_double = FALSE, locale = locale(encoding = "ISO-8859-1"), 
+#     trim_ws = TRUE)
+
+x.codleito = read_delim("doc/CODLEITO.csv", 
+    ";", escape_double = FALSE, col_types = cols(CODLEITO = col_double()),locale = locale(encoding = "ISO-8859-1"), 
+    trim_ws = TRUE)
+x.codleito$CODLEITO = as.factor(x.codleito$CODLEITO)
+
+
+
+#### CODIFICANDO A BASE
+leitos.cnes$MUNICIPIO = x.pop[match(leitos.cnes$CODUFMUN, x.pop$CODUFMUN),"MUNICIPIO"]
+# leitos.cnes$REGIAOSA = x.regsaude[match(leitos.cnes$REGSAUDE, x.regsaude$REGSAUDE),"var"] # com erro
+leitos.cnes$HOSPITAL = x.hosp[match(leitos.cnes$CPF_CNPJ, x.hosp$CPF_CNPJ),"FANTASIA"]
+leitos.cnes$LEITO = x.codleito[match(leitos.cnes$CODLEITO, x.codleito$CODLEITO),"LEITO"]
+
+
+variables_names <- names(leitos.cnes)
+if("TPGESTAO" %in% variables_names){
+    leitos.cnes$TPGESTAO <- as.character(levels(leitos.cnes$TPGESTAO))[leitos.cnes$TPGESTAO]
+    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="D"] <- "DUPLA"
+    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="E"] <- "ESTADUAL"
+    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="M"] <- "MUNICIPAL"
+    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="Z"] <- "SEM GESTAO"
+    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="S"] <- "SEM GESTAO"
+    leitos.cnes$TPGESTAO <- factor(leitos.cnes$TPGESTAO)
+  }
+
+if("TP_LEITO" %in% variables_names){
+    leitos.cnes$TP_LEITO <- as.character(levels(leitos.cnes$TP_LEITO))[leitos.cnes$TP_LEITO]
+    leitos.cnes$TP_LEITO[leitos.cnes$TP_LEITO=="1"] <- "CIRURGICO"
+    leitos.cnes$TP_LEITO[leitos.cnes$TP_LEITO=="2"] <- "CLINICO"
+    leitos.cnes$TP_LEITO[leitos.cnes$TP_LEITO=="3"] <- "OBSTETRICOS"
+    leitos.cnes$TP_LEITO[leitos.cnes$TP_LEITO=="4"] <- "PEDIATRICOS"
+    leitos.cnes$TP_LEITO[leitos.cnes$TP_LEITO=="5"] <- "OUTRAS ESPECIALIDADES"
+    leitos.cnes$TP_LEITO[leitos.cnes$TP_LEITO=="6"] <- "HOSPITAL DIA"
+    leitos.cnes$TP_LEITO[leitos.cnes$TP_LEITO=="7"] <- "COMPLEMENTAR"
+    leitos.cnes$TP_LEITO <- factor(leitos.cnes$TP_LEITO)
+  }
+
+
+
+# dados_sih = fetch_datasus(year_start = 2020, month_start = 1,
+#               year_end = 2020, month_end = 1,
+#               uf = c("RS"),
+#               information_system = "SIH-RD")
+# 
+# dados <- process_sih(data = dados_sih)
+
+# dados %>%
+#   select(ESPEC, SEXO) %>%
+#   group_by(ESPEC, SEXO) %>%
+#   summarize(count = n()) %>%
+#   group_by(ESPEC) %>%
+#   mutate(perc = count/sum(count)*100) %>%
+#   ggplot(aes(x = ESPEC, y = perc)) +
+#     geom_col(aes(fill = SEXO)) +
+#     xlab("Especialidade") + ylab("Percentual") + 
+#     labs(fill = "Sexo") +
+#     ggtitle("Especialidade da internação e sexo") +
+#     coord_flip()
+
+write.csv(leitos.cnes, "leitos.cnes.csv")
+```
+
+
+
+```{r}
+# testando os resultados
+library(dplyr)
+View(leitos.cnes %>% filter(MUNICIPIO =="Ijuí",
+                            LEITO =="UTI NEONATAL - TIPO I"))
+```
+
