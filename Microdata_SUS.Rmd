@@ -1,21 +1,30 @@
 ---
-title: "Micro Data SUS"
-author: "Felipe Smolski"
-date: "27/03/2020"
-output: html_document
+title: "Disponibilidade de leitos hospitalares nos municípios do Rio Grande do Sul: desafios no enfrentamento do COVID-19"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
 ---
+
+
+
+```{r, include=FALSE}
+library(flexdashboard)
+library(plotly)
+```
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
+```{r, include=FALSE}
 ## Início
-```{r}
 # devtools::install_github("rpradosiqueira/datasus")
 ```
 
 
-```{r}
+```{r leitura, include=FALSE}
 # devtools::install_github("rfsaldanha/microdatasus")
 
 # https://github.com/rfsaldanha/microdatasus
@@ -34,48 +43,145 @@ library(read.dbc)
 library(microdatasus)
 library(readr)
 library(readxl)
+library(dplyr)
+library(stringr)
+library(leaflet)
+
 
 
 leitos.cnes <- fetch_datasus(year_start = 2020, month_start = 2,
                               year_end = 2020, month_end = 2,
                               uf = "RS",
                               information_system = "CNES-LT")
+
+
+
+
 leitos.cnes$CODLEITO = as.numeric(as.character(leitos.cnes$CODLEITO))
-# municipio <- read_delim("MUNICIPIO_BRASIL_201902/MUNICIPIO.csv", 
-#     ";", escape_double = FALSE, trim_ws = TRUE)
-# names(municipio)[1] = "CODUFMUN"
-# names(municipio)[2] = "MUNICIPIO"
+leitos.cnes$QT_EXIST = as.numeric(leitos.cnes$QT_EXIST)
+leitos.cnes$QT_CONTR = as.numeric(leitos.cnes$QT_CONTR)
+leitos.cnes$QT_SUS = as.numeric(leitos.cnes$QT_SUS)
+leitos.cnes$QT_NSUS = as.numeric(leitos.cnes$QT_NSUS)
+colnames(leitos.cnes)[23] = "QTEXIST"
+colnames(leitos.cnes)[24] = "QTCONTR"
+colnames(leitos.cnes)[25] = "QTSUS"
+colnames(leitos.cnes)[26] = "QTNSUS"
 
-# leitos.cnes$CODLEITO = as.numeric(leitos.cnes$CODLEITO)
 
-x.pop <- na.omit(read_delim("doc/populacao.csv", ";", skip = 3,locale = locale(encoding = "ISO-8859-1")))
+leitos.cnes$ANO = substr(leitos.cnes$COMPETEN,1,4)
+leitos.cnes$MES = substr(leitos.cnes$COMPETEN,5,6)
+
+x.pop <- data.frame(na.omit(read_delim("doc/populacao.csv", ";", skip = 3,locale = locale(encoding = "ISO-8859-1"))))
+x.pop = x.pop %>% filter(str_starts(CODUFMUN, "43"))
 x.pop$CODUFMUN = as.factor(x.pop$CODUFMUN)
+x.pop = tidyr::gather(x.pop, "ANO","POPULACAO", 3:30)
+x.pop$ANO = as.factor(substr(x.pop$ANO,2,5))
 
-x.hosp = read_csv("doc/CADGERRS.csv",locale = locale(encoding = "ISO-8859-1"))
+x.reg.saude <- data.frame(read_delim("doc/reg_saude_mun.csv", ";",locale = locale(encoding = "ISO-8859-1")))
+
+
+x.hosp = data.frame(read_csv("doc/CADGERRS.csv",locale = locale(encoding = "ISO-8859-1")))
 
 # PASTA "Tab_CMD"
 
-x.cid10 <- read_csv("doc/CID10.csv", 
-    locale = locale(encoding = "ISO-8859-1"))
+x.cid10 = data.frame(read_csv("doc/CID10.csv", 
+    locale = locale(encoding = "ISO-8859-1")))
 
 # com erro
 # x.regsaude = read_delim("rs_cnv/RS_REGSAUDE.csv", 
 #     ";", escape_double = FALSE, locale = locale(encoding = "ISO-8859-1"), 
 #     trim_ws = TRUE)
 
-x.codleito = read_delim("doc/CODLEITO.csv", 
+x.codleito = data.frame(read_delim("doc/CODLEITO.csv", 
     ";", escape_double = FALSE, col_types = cols(CODLEITO = col_double()),locale = locale(encoding = "ISO-8859-1"), 
-    trim_ws = TRUE)
+    trim_ws = TRUE))
 # x.codleito$CODLEITO = as.factor(x.codleito$CODLEITO)
 
+x.coredes = data.frame(read_delim("doc/coredes.csv", 
+    ";", escape_double = FALSE, locale = locale(encoding = "ISO-8859-1"), trim_ws = TRUE))
+x.coredes$CODUFMUN=substr(x.coredes$CODUFMUN,1,6)
+x.coredes$COREDE = as.factor(x.coredes$COREDE)
 
+x.rf =  data.frame(read_delim("doc/rf.csv", 
+    ";", escape_double = FALSE, locale = locale(encoding = "ISO-8859-1")))
+
+x.etaria =  data.frame(read_delim("doc/faixaetariars2018.csv", 
+    ";", trim_ws = TRUE, locale = locale(decimal_mark = ",")))
+
+ 
 
 #### CODIFICANDO A BASE
-leitos.cnes$MUNICIPIO = x.pop[match(leitos.cnes$CODUFMUN, x.pop$CODUFMUN),"MUNICIPIO"]
-# leitos.cnes$REGIAOSA = x.regsaude[match(leitos.cnes$REGSAUDE, x.regsaude$REGSAUDE),"var"] # com erro
-leitos.cnes$HOSPITAL = x.hosp[match(leitos.cnes$CPF_CNPJ, x.hosp$CPF_CNPJ),"FANTASIA"]
-leitos.cnes$LEITO = x.codleito[match(leitos.cnes$CODLEITO, x.codleito$CODLEITO),"LEITO"]
+leitos.cnes$MUNICIPIO = x.pop[match(as.factor(leitos.cnes$CODUFMUN), as.factor(x.pop$CODUFMUN)),"MUNICIPIO"]
+# leitos.cnes$MUNICIPIO = as.factor(as.data.frame(leitos.cnes$MUNICIPIO))
 
+# leitos.cnes$REGIAOSA = x.regsaude[match(leitos.cnes$REGSAUDE, x.regsaude$REGSAUDE),"var"] # com erro
+leitos.cnes$HOSPITAL = as.factor(x.hosp[match(leitos.cnes$CPF_CNPJ, as.factor(x.hosp$CPF_CNPJ)),"FANTASIA"])
+# leitos.cnes$HOSPITAL = as.factor(as.data.frame(leitos.cnes$HOSPITAL))
+
+leitos.cnes$LEITO = as.factor(x.codleito[match(leitos.cnes$CODLEITO, as.factor(x.codleito$CODLEITO)),"LEITO"])
+# leitos.cnes$LEITO = as.factor(as.data.frame(leitos.cnes$LEITO))
+
+leitos.cnes$ID = paste(leitos.cnes$ANO,leitos.cnes$CODUFMUN)
+# leitos.cnes$ID = as.factor(as.data.frame(leitos.cnes$ID))
+
+x.pop$ID = paste(x.pop$ANO,x.pop$CODUFMUN)
+leitos.cnes$POPULACAO = x.pop[match(leitos.cnes$ID, x.pop$ID),"POPULACAO"]
+# leitos.cnes$POPULACAO = as.factor(as.data.frame(leitos.cnes$POPULACAO))
+
+leitos.cnes$COREDE = x.coredes[match(leitos.cnes$CODUFMUN, x.coredes$CODUFMUN),"COREDE"]
+
+x.pop2020corede = x.pop %>% filter(ANO == 2020)
+x.pop2020corede$COREDE = x.coredes[match(x.pop2020corede$CODUFMUN, x.coredes$CODUFMUN),"COREDE"]
+
+x.pop2020corede$REGSAUDE = x.reg.saude[match(x.pop2020corede$CODUFMUN, x.reg.saude$CODUFMUN),"REG_SAUDE"]
+
+leitos.cnes$REGSAUDE = x.reg.saude[match(leitos.cnes$CODUFMUN, x.reg.saude$CODUFMUN),"REG_SAUDE"]
+
+x.pop2020corede$RF =  x.rf[match(x.pop2020corede$MUNICIPIO, x.rf$MUNICIPIO),"RF"]
+
+colnames(x.etaria)[1] = "MUNICIPIO"
+colnames(x.etaria)[2] = "CODUFMUN"
+x.etaria$CODUFMUN=substr(x.etaria$CODUFMUN,1,6)
+
+x.etaria.tot = x.etaria %>% dplyr::select("CODUFMUN","MUNICIPIO",c(56:72))
+x.etaria.tot$CODUFMUN = as.character(x.etaria.tot$CODUFMUN)
+  
+x.etaria.tot = x.pop2020corede %>%
+  dplyr::left_join(x.etaria.tot, by = "CODUFMUN") %>%
+   dplyr::select(-c("ANO","ID","MUNICIPIO.y")) %>%
+  rename(MUNICIPIO = MUNICIPIO.x) %>%
+  mutate(POPULACAO = as.numeric(POPULACAO))
+
+# p = proporcao,  t=total
+x.etaria.tot$T.Faixa.de80anosemais = round(x.etaria.tot$P.Faixa.de80anosemais * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de75a79anos = round(x.etaria.tot$P.Faixa.de75a79anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de70a74anos = round(x.etaria.tot$P.Faixa.de70a74anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de60a64anos = round(x.etaria.tot$P.Faixa.de60a64anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de65a69anos = round(x.etaria.tot$P.Faixa.de65a69anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de55a59anos = round(x.etaria.tot$P.Faixa.de55a59anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de50a54anos = round(x.etaria.tot$P.Faixa.de50a54anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de45a49anos = round(x.etaria.tot$P.Faixa.de45a49anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de40a44anos = round(x.etaria.tot$P.Faixa.de40a44anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de35a39anos = round(x.etaria.tot$P.Faixa.de35a39anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de30a34anos = round(x.etaria.tot$P.Faixa.de30a34anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de25a29anos = round(x.etaria.tot$P.Faixa.de25a29anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de20a24anos = round(x.etaria.tot$P.Faixa.de20a24anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de15a19anos = round(x.etaria.tot$P.Faixa.de15a19anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de10a14anos = round(x.etaria.tot$P.Faixa.de10a14anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de05a09anos = round(x.etaria.tot$P.Faixa.de05a09anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$T.Faixa.de00a04anos = round(x.etaria.tot$P.Faixa.de00a04anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$P.Faixa.de00a19anos = (x.etaria.tot$P.Faixa.de00a04anos+
+                                            x.etaria.tot$P.Faixa.de05a09ano+
+                                            x.etaria.tot$P.Faixa.de10a14anos+
+                                            x.etaria.tot$P.Faixa.de15a19anos)
+x.etaria.tot$T.Faixa.de00a19anos = round(x.etaria.tot$P.Faixa.de00a19anos * x.etaria.tot$POPULACAO,0)
+x.etaria.tot$P.Faixa.de60anosemais = x.etaria.tot$P.Faixa.de80anosemais+
+                                            x.etaria.tot$P.Faixa.de75a79anos+
+                                            x.etaria.tot$P.Faixa.de70a74anos+
+                                            x.etaria.tot$P.Faixa.de60a64anos
+x.etaria.tot$T.Faixa.de60anosemais = round(x.etaria.tot$P.Faixa.de60anosemais * x.etaria.tot$POPULACAO,0)
+
+#x.etaria.tot$CODUFMUN = as.factor(x.etaria.tot$CODUFMUN)
 
 variables_names <- names(leitos.cnes)
 if("TPGESTAO" %in% variables_names){
@@ -88,15 +194,6 @@ if("TPGESTAO" %in% variables_names){
     leitos.cnes$TPGESTAO <- factor(leitos.cnes$TPGESTAO)
 }
 
-if("TPGESTAO" %in% variables_names){
-    leitos.cnes$TPGESTAO <- as.character(levels(leitos.cnes$TPGESTAO))[leitos.cnes$TPGESTAO]
-    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="D"] <- "DUPLA"
-    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="E"] <- "ESTADUAL"
-    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="M"] <- "MUNICIPAL"
-    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="Z"] <- "SEM GESTAO"
-    leitos.cnes$TPGESTAO[leitos.cnes$TPGESTAO=="S"] <- "SEM GESTAO"
-    leitos.cnes$TPGESTAO <- factor(leitos.cnes$TPGESTAO)
-  }
 
 if("TP_LEITO" %in% variables_names){
     leitos.cnes$TP_LEITO <- as.character(levels(leitos.cnes$TP_LEITO))[leitos.cnes$TP_LEITO]
@@ -110,15 +207,139 @@ if("TP_LEITO" %in% variables_names){
     leitos.cnes$TP_LEITO <- factor(leitos.cnes$TP_LEITO)
   }
 
+leitos.cnes = as.data.frame(leitos.cnes)
+# write.csv(leitos.cnes, "leitos.cnes.csv")
+```
 
 
-# dados_sih = fetch_datasus(year_start = 2020, month_start = 1,
+
+```{r leitquip, include=FALSE}
+# Equipamentos
+# =======================================================================
+
+
+# equip.cnes2010.2020 <- fetch_datasus(year_start = 2010, month_start = 1,
+#                               year_end = 2020, month_end = 2,
+#                               uf = "RS",
+#                               information_system = "CNES-EQ")
+
+equip.cnes <- fetch_datasus(year_start = 2020, month_start = 2,
+                              year_end = 2020, month_end = 2,
+                              uf = "RS",
+                              information_system = "CNES-EQ")
+
+colnames(equip.cnes)[23] = "QTEXIST"
+colnames(equip.cnes)[24] = "QTUSO"
+colnames(equip.cnes)[25] = "INDSUS"
+colnames(equip.cnes)[26] = "INDNSUS"
+equip.cnes$QTEXIST = as.numeric(equip.cnes$QTEXIST)
+equip.cnes$QTUSO = as.numeric(equip.cnes$QTUSO)
+equip.cnes$INDSUS = as.numeric(equip.cnes$INDSUS)
+equip.cnes$INDNSUS = as.numeric(equip.cnes$INDNSUS)
+
+
+x.equip = data.frame(read_delim("doc/equip.csv", 
+    ";", escape_double = FALSE, col_types = cols(TIPEQUIP = col_factor(), CODEQUIP = col_factor()),locale = locale(encoding = "ISO-8859-1"), trim_ws = TRUE))
+
+equip.cnes$EQUIPAMENTO = as.factor(x.equip[match(equip.cnes$CODEQUIP, as.factor(x.equip$CODEQUIP)),"EQUIPAMENTO"])
+
+equip.cnes$DESC.EQUIP = as.factor(x.equip[match(equip.cnes$TIPEQUIP, as.factor(x.equip$TIPEQUIP)),"DESC_EQUIP"])
+
+equip.cnes$REGSAUDE = NULL
+
+equip.cnes  = x.pop2020corede %>%
+  dplyr::left_join(equip.cnes, by = "CODUFMUN")  %>%
+   dplyr::select(-c("ANO","ID"))
+equip.cnes$POPULACAO = as.numeric(equip.cnes$POPULACAO)
+
+```
+
+```{r tab.equip.rs, include=FALSE}
+tab.equip.rs = equip.cnes %>% 
+    dplyr::select("CODUFMUN","MUNICIPIO","QTEXIST","QTUSO","INDSUS","INDNSUS","POPULACAO","REGSAUDE","EQUIPAMENTO") %>%
+    filter(str_starts(EQUIPAMENTO, "RESPIRADOR/VENTILADOR")) %>%
+    group_by(EQUIPAMENTO) %>%
+    summarise("QTEXIST" = sum(QTEXIST),
+              "QTUSO" = sum(QTUSO),
+              "INDSUS" = sum(INDSUS),
+              "INDNSUS" = sum(INDNSUS),
+              "POPULACAO" = sum(unique(as.numeric(POPULACAO))),
+              TOTAL10MIL = round(sum(QTEXIST)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.INDSUS = round(sum(INDSUS)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.INDNSUS= round(sum(INDNSUS)*10000/as.numeric(POPULACAO),2))
+
+View(tab.equip.rs)
+```
+
+
+```{r tab.equip.mun, include=FALSE} 
+# EQUIPQMENTOS MUNICIPIOS
+tab.equip.mun = equip.cnes %>% 
+    dplyr::select("CODUFMUN","MUNICIPIO","QTEXIST","QTUSO","INDSUS","INDNSUS","POPULACAO","REGSAUDE","EQUIPAMENTO") %>%
+    filter(str_starts(EQUIPAMENTO, "RESPIRADOR/VENTILADOR")) %>%
+    group_by(CODUFMUN, MUNICIPIO,REGSAUDE) %>%
+    summarise("QTEXIST" = sum(QTEXIST),
+              "QTUSO" = sum(QTUSO),
+              "INDSUS" = sum(INDSUS),
+              "INDNSUS" = sum(INDNSUS),
+              "POPULACAO" = sum(unique(as.numeric(POPULACAO))),
+              TOTAL10MIL = round(sum(QTEXIST)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.INDSUS = round(sum(INDSUS)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.INDNSUS= round(sum(INDNSUS)*10000/as.numeric(POPULACAO),2))
+
+tab.equip.mun  = x.pop2020corede %>%
+  left_join(tab.equip.mun, by = "CODUFMUN") %>%
+  dplyr::select(-c("ANO","MUNICIPIO.y","ID","POPULACAO.y","REGSAUDE.y"))
+View(tab.equip.mun)
+```
+
+```{r tab.equip.regsaude, include=FALSE}
+tab.equip.regsaude = equip.cnes %>% 
+    dplyr::select("CODUFMUN","MUNICIPIO","QTEXIST","QTUSO","INDSUS","INDNSUS","POPULACAO","REGSAUDE","EQUIPAMENTO") %>%
+    filter(str_starts(EQUIPAMENTO, "RESPIRADOR/VENTILADOR")) %>%
+    group_by(CODUFMUN, REGSAUDE) %>%
+    summarise("QTEXIST" = sum(QTEXIST),
+              "QTUSO" = sum(QTUSO),
+              "INDSUS" = sum(INDSUS),
+              "INDNSUS" = sum(INDNSUS),
+              "POPULACAO" = sum(unique(as.numeric(POPULACAO))),
+              TOTAL10MIL = round(sum(QTEXIST)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.INDSUS = round(sum(INDSUS)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.INDNSUS= round(sum(INDNSUS)*10000/as.numeric(POPULACAO),2))
+
+View(tab.equip.mun)
+```
+
+
+```{r, include=FALSE}
+# df = fetch_datasus(year_start = 2017, year_end = 2017,
+#               information_system = "SIM-DO", uf= "RS",
+#               vars = c("CODMUNRES", "DTOBITO", "CAUSABAS"))
+#               
+```
+
+
+```{r internac, include=FALSE, warning=FALSE}
+# internacoes.sih = fetch_datasus(year_start = 2019, month_start = 1,
 #               year_end = 2020, month_end = 1,
 #               uf = c("RS"),
 #               information_system = "SIH-RD")
 # 
-# dados <- process_sih(data = dados_sih)
+# internacoes.sih <- process_sih(data = internacoes.sih)
+# # colnames(internacoes.sih)[1] = "CODUFMUN"
+# 
+# internacoes = internacoes.sih %>% dplyr::select("UF_ZI","ANO_CMPT","MES_CMPT", "ESPEC", "CGC_HOSP","CEP","NASC","SEXO","DIAG_PRINC","MUNIC_MOV","COD_IDADE","IDADE","MORTE","CID_ASSO","CID_MORTE","QT_DIARIAS")
+# 
+# internacoes$cid = x.cid10[match(as.factor(internacoes$DIAG_PRINC), as.factor(x.cid10$CO_CID)),"DS_CID"]
+# internacoes$MUNICIPIO = x.coredes[match(as.factor(internacoes$MUNIC_MOV), as.factor(x.coredes$CODUFMUN)),"MUNICIPIO"]
+# # 
+# 
+# View(internacoes %>% filter())
+# View(internacoes %>% filter(str_starts(DIAG_PRINC, "U049")))
+```
 
+
+```{r, include=FALSE, warning=FALSE}
 # dados %>%
 #   select(ESPEC, SEXO) %>%
 #   group_by(ESPEC, SEXO) %>%
@@ -132,15 +353,1346 @@ if("TP_LEITO" %in% variables_names){
 #     ggtitle("Especialidade da internação e sexo") +
 #     coord_flip()
 
-write.csv(leitos.cnes, "leitos.cnes.csv")
+# write.csv(internacoes.sih, "internacoes.sih.csv")
+```
+
+```{r, include=FALSE, warning=FALSE}
+library(raster)
+# Carregando o arquivo
+
+mapars <- sf::st_read("doc/rs_municipios/43MUE250GC_SIR.shp", quiet = TRUE)
+# mapars=shapefile("doc/rs_municipios/43MUE250GC_SIR.shp")
+# colnames(MAPARS@data[2]) = "CODUFMUN"
+
+# Excluindo dados inconvenientes
+mapars=mapars[mapars$CD_GEOCMU !="4300001" & mapars$CD_GEOCMU !="4300002",]
+# Corrigindo os dados do código IBGE dos municípios
+mapars$CD_GEOCMU=substr(mapars$CD_GEOCMU,1,6)
 ```
 
 
+```{r, include=FALSE, warning=FALSE}
+# testando os resultados
+# library(dplyr)
+# View(leitos.cnes %>% filter(MUNICIPIO =="Ijuí",
+#                             LEITO =="UTI NEONATAL - TIPO I"))
+```
+
+
+
+```{r tab.leitos.estado.tipo, echo=FALSE}
+# Estado
+# =======================================================================
+
+### TOTAL ESTADO TIPO DE LEITO 
+
+library(dplyr)
+# TOTAL ESTADO POR TIPO DE LEITO - ok!
+tab.leitos.estado.tipo =  leitos.cnes %>%
+    dplyr::select("CODUFMUN","MUNICIPIO","HOSPITAL","LEITO","QTEXIST","QTSUS","QTNSUS","POPULACAO","REGSAUDE") %>%
+    group_by(LEITO) %>%
+    summarise("QTEXIST" = sum(QTEXIST),
+              "QTSUS" = sum(QTSUS),
+              "QTNSUS" = sum(QTNSUS),
+              "POPULACAO" = sum(unique(as.numeric(x.pop2020corede$POPULACAO))),
+              TOTAL10MIL = round(sum(QTEXIST)*10000/as.numeric(POPULACAO),2),
+           TOTAL10MIL.SUS = round(sum(QTSUS)*10000/as.numeric(POPULACAO),2),
+           TOTAL10MIL.NSUS = round(sum(QTNSUS)*10000/as.numeric(POPULACAO),2))
+
+
+# View(tab.leitos.estado.tipo)
+# write.csv(tab.leitos.estado.tipo, "tab.leitos.estado.tipo10.000.csv")
+```
+
+```{r, include=FALSE}
+tab.leitos.estado.tipo2 =  leitos.cnes %>% 
+  dplyr::select("CODUFMUN","MUNICIPIO","HOSPITAL","TP_LEITO","QTEXIST","QTSUS","QTNSUS","POPULACAO","REGSAUDE") %>% 
+  group_by(TP_LEITO) %>% 
+  summarise("QTEXIST" = sum(QTEXIST),
+            "QTSUS" = sum(QTSUS),
+            "QTNSUS" = sum(QTNSUS),
+            "POPULACAO" = sum(unique(as.numeric(x.pop2020corede$POPULACAO))),
+            TOTAL10MIL = round(sum(QTEXIST)*10000/as.numeric(POPULACAO),2),
+            TOTAL10MIL.SUS = round(sum(QTSUS)*10000/as.numeric(POPULACAO),2),
+            TOTAL10MIL.NSUS = round(sum(QTNSUS)*10000/as.numeric(POPULACAO),2)) %>% 
+  mutate( 
+    "PERC.QTEXIST" =  paste0(round(100*QTEXIST / sum(QTEXIST), 2), "%"),
+    "PERC.QTSUS" =  paste0(round(100*QTSUS / sum(QTSUS), 2), "%"),
+    "PERC.QTNSUS" =  paste0(round(100*QTNSUS / sum(QTNSUS), 2), "%"))
+ 
+
+tab.leitos.estado.tipo2 = dplyr::select(tab.leitos.estado.tipo2, TP_LEITO,POPULACAO,QTEXIST,PERC.QTEXIST,TOTAL10MIL,QTSUS,PERC.QTSUS,TOTAL10MIL.SUS,         QTNSUS,PERC.QTNSUS,TOTAL10MIL.NSUS)
+    
+# "PERC.QTEXIST" =  paste0(round(100*QTEXIST / sum(QTEXIST), 2), "%"),
+
+write.csv(tab.leitos.estado.tipo2, "tab.leitos.estado.tipo2.csv")
+
+```
+
+
+```{r teste, include=FALSE, warning=FALSE, message=FALSE}
+#VERIFICAR!
+teste = (data.frame(t(tab.leitos.estado.tipo[order(tab.leitos.estado.tipo$QTEXIST, decreasing = TRUE),])[1:2,]))
+names(teste) <- lapply(teste[1, ], as.character)
+teste <- teste[-1,]
+teste[] <- lapply(teste, function(x) {
+    if(is.factor(x)) as.numeric(as.character(x)) else x
+})
+sapply(teste, class)
+library(fmsb)
+
+# To use the fmsb package, I have to add 2 lines to the dataframe: the max and min of each topic to show on the plot!
+data <- rbind(rep(10000,56), rep(0,56), teste)
+radarchart(data,vlcex=0.6)
+
+
+```
+
+
+
+
+```{r tab.leitos.mun.hosp, include=FALSE}
+# Municipios
+# =======================================================================
+
+### Tab porte mun
+
+# TOTAIS HOSPITAIS PORTE
+tab.leitos.mun.hosp = leitos.cnes %>% 
+    dplyr::select("CODUFMUN","MUNICIPIO","HOSPITAL","CPF_CNPJ","QTEXIST","QTSUS","QTNSUS","POPULACAO","REGSAUDE") %>%
+    group_by(CODUFMUN,MUNICIPIO,HOSPITAL) %>%
+      summarise("QTEXIST" = sum(QTEXIST),
+              "QTSUS" = sum(QTSUS),
+              "QTNSUS" = sum(QTNSUS)) %>%
+  mutate("PORTE" = ifelse(QTEXIST <= 30,"PEQUENO",
+                               ifelse(QTEXIST <=150,"MEDIO","GRANDE")))
+
+
+# View(tab.leitos.mun.hosp)
+# tab.leitos.mun = merge(x.pop2020corede, tab.leitos.mun, by="CODUFMUN", all=T)
+
+
+tab.leitos.mun.hosp1 = tab.leitos.mun.hosp %>% 
+  dplyr::select("CODUFMUN","MUNICIPIO","HOSPITAL","QTEXIST","QTSUS","QTNSUS","PORTE") %>%
+  group_by(CODUFMUN,MUNICIPIO,PORTE)%>%
+  # summarise("PORTE" = length(PORTE)) %>%
+  summarise(n= n()) %>%
+  ungroup() %>%
+  tidyr::spread(PORTE, n, fill=0)
+
+
+# View(tab.leitos.mun.hosp1)
+
+
+tab.leitos.mun.hosp1  = x.pop2020corede %>%
+  left_join(tab.leitos.mun.hosp1, by = "CODUFMUN") %>%
+  dplyr::select(-c("ANO","MUNICIPIO.y","ID")) %>%
+  rename(MUNICIPIO = MUNICIPIO.x) %>%
+  mutate(GRANDE = ifelse(GRANDE ==0,NA, GRANDE),
+         MEDIO = ifelse(MEDIO ==0,NA, MEDIO),
+         PEQUENO = ifelse(PEQUENO ==0,NA, PEQUENO)) %>%
+  rowwise() %>% 
+  mutate(TOTAL = sum(GRANDE, MEDIO, PEQUENO, na.rm=TRUE)) %>%
+  mutate(TOTAL = ifelse(TOTAL ==0,NA, TOTAL))
+
+```
+
+
+
+```{r tab.leitos.mun, echo=FALSE}
+### Tab leitos mun
+# TOTAIS MUNICIPIOS - ok!!
+library(ggplot2)
+
+tab.leitos.mun = leitos.cnes %>% 
+    dplyr::select("CODUFMUN","MUNICIPIO","HOSPITAL","LEITO","QTEXIST","QTSUS","QTNSUS","POPULACAO","REGSAUDE") %>%
+    group_by(CODUFMUN,MUNICIPIO) %>%
+    summarise("QTEXIST" = sum(QTEXIST),
+              "QTSUS" = sum(QTSUS),
+              "QTNSUS" = sum(QTNSUS),
+              "POPULACAO" = sum(unique(as.numeric(POPULACAO))),
+              TOTAL10MIL = round(sum(QTEXIST)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.SUS = round(sum(QTSUS)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.NSUS = round(sum(QTNSUS)*10000/as.numeric(POPULACAO),2))
+
+# tab.leitos.mun = merge(x.pop2020corede, tab.leitos.mun, by="CODUFMUN", all=T)
+
+tab.leitos.mun  = x.pop2020corede %>%
+  left_join(tab.leitos.mun, by = "CODUFMUN") %>%
+  dplyr::select(-c("ANO","MUNICIPIO.y","ID","POPULACAO.y"))
+  
+colnames(tab.leitos.mun)[2] = "MUNICIPIO"
+colnames(tab.leitos.mun)[3] = "POPULACAO"
+
+tab.leitos.mun[is.na(tab.leitos.mun)] = 0
+tab.leitos.mun$QTEXIST.na = ifelse(tab.leitos.mun$QTEXIST == 0, NA,
+                                   tab.leitos.mun$QTEXIST)
+tab.leitos.mun$QTSUS.na = ifelse(tab.leitos.mun$QTEXIST == 0, NA,
+                                   tab.leitos.mun$QTSUS)
+tab.leitos.mun$QTNSUS.na = ifelse(tab.leitos.mun$QTEXIST == 0, NA,
+                                   tab.leitos.mun$QTNSUS)
+
+tab.leitos.mun$TOTAL10MIL.na = ifelse(tab.leitos.mun$TOTAL10MIL == 0, NA,
+                                   tab.leitos.mun$TOTAL10MIL)
+tab.leitos.mun$TOTAL10MIL.SUS.na = ifelse(tab.leitos.mun$TOTAL10MIL.SUS == 0, NA,
+                                   tab.leitos.mun$TOTAL10MIL.SUS)
+tab.leitos.mun$TOTAL10MIL.NSUS.na = ifelse(tab.leitos.mun$TOTAL10MIL.NSUS == 0, NA,
+                                   tab.leitos.mun$TOTAL10MIL.NSUS)
+# QL
+tab.leitos.mun$QL.QTSUS = (tab.leitos.mun$QTSUS/sum(tab.leitos.mun$QTSUS))/
+  (as.numeric(tab.leitos.mun$POPULACAO)/sum(as.numeric(tab.leitos.mun$POPULACAO)))
+tab.leitos.mun$QL.QTSUS.na = ifelse(tab.leitos.mun$QL.QTSUS ==0, NA, tab.leitos.mun$QL.QTSUS)
+
+tab.leitos.mun$QL.QTEXIST = (tab.leitos.mun$QTEXIST/sum(tab.leitos.mun$QTEXIST))/
+  (as.numeric(tab.leitos.mun$POPULACAO)/sum(as.numeric(tab.leitos.mun$POPULACAO)))
+tab.leitos.mun$QL.QTEXIST.na = ifelse(tab.leitos.mun$QL.QTEXIST ==0, NA, tab.leitos.mun$QL.QTEXIST)
+
+tab.leitos.mun$QL.QTNSUS = (tab.leitos.mun$QTNSUS/sum(tab.leitos.mun$QTNSUS))/
+  (as.numeric(tab.leitos.mun$POPULACAO)/sum(as.numeric(tab.leitos.mun$POPULACAO)))
+tab.leitos.mun$QL.QTNSUS.na = ifelse(tab.leitos.mun$QL.QTNSUS ==0, NA, tab.leitos.mun$QL.QTNSUS)
+
+
+
+# QL 10 mil SUS
+tab.leitos.mun$QL.TOTAL10MILSUS = (tab.leitos.mun$TOTAL10MIL.SUS/sum(tab.leitos.mun$TOTAL10MIL.SUS))/
+  (as.numeric(tab.leitos.mun$POPULACAO)/sum(as.numeric(tab.leitos.mun$POPULACAO)))
+
+tab.leitos.mun$QL.TOTAL10MILSUS.na = ifelse(tab.leitos.mun$QL.TOTAL10MILSUS ==0, NA, tab.leitos.mun$QL.TOTAL10MILSUS)
+
+# QL 10 mil total
+tab.leitos.mun$QL.TOTAL10MIL = (tab.leitos.mun$TOTAL10MIL/sum(tab.leitos.mun$TOTAL10MIL))/
+  (as.numeric(tab.leitos.mun$POPULACAO)/sum(as.numeric(tab.leitos.mun$POPULACAO)))
+
+tab.leitos.mun$QL.TOTAL10MIL.na = ifelse(tab.leitos.mun$QL.TOTAL10MIL ==0, NA, tab.leitos.mun$QL.TOTAL10MIL)
+
+# QL 10 mil NSUS
+tab.leitos.mun$QL.TOTAL10MILNSUS = (tab.leitos.mun$TOTAL10MIL.NSUS/sum(tab.leitos.mun$TOTAL10MIL.NSUS))/
+  (as.numeric(tab.leitos.mun$POPULACAO)/sum(as.numeric(tab.leitos.mun$POPULACAO)))
+
+tab.leitos.mun$QL.TOTAL10MILNSUS.na = ifelse(tab.leitos.mun$QL.TOTAL10MILNSUS ==0, NA, tab.leitos.mun$QL.TOTAL10MILNSUS)
+
+
+tab.leitos.mun$POPULACAO = as.numeric(tab.leitos.mun$POPULACAO)
+
+tab.leitos.mun  = tab.leitos.mun %>%
+  left_join(x.etaria.tot, by = "CODUFMUN") %>%
+  dplyr::select(-c("MUNICIPIO.y","POPULACAO.y","COREDE.y","RF.y","REGSAUDE.y")) %>%
+  rename(MUNICIPIO = MUNICIPIO.x,
+         COREDE = COREDE.x,
+         RF = RF.x,
+         REGSAUDE = REGSAUDE.x,
+         POPULACAO = POPULACAO.x)
+
+
+# View(tab.leitos.mun)
+
+# View(tab.leitos.mun %>% select("MUNICIPIO","POPULACAO","REGSAUDE","QL.QTEXIST.na","QL.QTSUS.na", "QL.QTNSUS.na") %>% filter(QL.QTEXIST.na <1))
+
+# View(tab.leitos.mun %>% select("MUNICIPIO","REGSAUDE","QL.QTEXIST.na","QL.QTSUS.na", "QL.QTNSUS.na") %>% filter(QL.QTEXIST.na <1) %>% group_by(REGSAUDE) %>% summarise(count=n()))
+
+#knitr::kable(head(tab.leitos.mun))
+
+```
+
+
+```{r, include=FALSE}
+# ggplot( aes(x=log(POPULACAO), y=TOTAL10MIL.na))+
+#   ggtitle("")+
+#   geom_point()+
+#   ylim(0, 200)+
+#   facet_wrap("REGSAUDE")+
+#   # geom_text(aes(label=MUNICIPIO),hjust=0, vjust=0)
+#   geom_smooth()
+```
+
+
+```{r inimaps, include=FALSE}
+## Ini.maps
+
+tab.leitos.mun1 = tab.leitos.mun
+colnames(tab.leitos.mun1)[1]="CD_GEOCMU"
+
+mapars.leitos = merge(mapars, tab.leitos.mun1, by="CD_GEOCMU", all.x=T)
+
+library(tmap)
+
+mapars.leitos$name=row.names(mapars.leitos)
+
+# library(tmaptools)
+#  mapas.leitos.regsaude <- tmaptools::aggregate_map(mapars.leitos, by="REGSAUDE",
+#          agg.fun = list(name="modal", POPULACAO="sum"))
+#  
+#  teste=aggregate_map(mapars.leitos, by="REGSAUDE")
+#  
+#  aggregate_map(mapars.leitos, fact=16, agg.fun = "modal", na.rm=T)
+# 
+# library(spdplyr)
+#  library(magrittr)
+# mapas.leitos.regsaude <- mapars.leitos %>% group_by(REGSAUDE) %>% summarize(POPULACAO = sum(POPULACAO)) 
+# 
+# mapas.leitos.regsaude = mapas.leitos.regsaude %>% simplify_shape(keep.units = TRUE, keep.subunits = FALSE)
+# 
+# teste <- st_simplify(mapas.leitos.regsaude) #
+# 
+# library(sp)
+# zones@data$region <- 1
+# zones@data[c(2, 5), c("region")] <- 2
+# aggzones <- sp::SpatialPolygonsDataFrame(rgeos::gUnaryUnion(
+#   mapars.leitos,
+#   id = mapars.leitos@data$REGSAUDE
+# ), data.frame())
+# zones@data$region <- NULL
+# zones@data$exdata <- 5
+# library(sp)
+# sp_aggregate(zones, aggzones)
+# 
+# teste = sp_aggregate(mapars.leitos,by=REGSAUDE)
+# 
+# 
+# dplyr::glimpse(mapas.leitos.regsaude)
+
+mapas.leitos.regsaude <- mapars.leitos %>%
+ dplyr::group_by(REGSAUDE) %>%
+  dplyr::summarise(POPULACAO = sum(POPULACAO)) %>%
+  dplyr::ungroup()
+# 
+# 
+# TESTE= mapars.leitos %>% distinct(REGSAUDE, .keep_all = FALSE) %>% 
+#    arrange(REGSAUDE)  
+
+# teste= mapars.leitos %>% tmaptools::aggregate_map(by = "REGSAUDE")
+# 
+# teste=maptools::unionSpatialPolygons(mapars.leitos, mapars.leitos$REGSAUDE)
+# 
+# oregon.coords <- coordinates(mapars.leitos)
+#         
+# 
+# wrld_simpl %>% distinct(REGION, .keep_all = TRUE) %>% 
+#    arrange(REGION)  ## first alphabetically in REGION
+# wrld_simpl %>% arrange(REGION, desc(NAME)) %>% distinct(REGION, .keep_all = TRUE) ## last
+# 
+# 
+# teste = mapars.leitos %>% group_by(REGSAUDE) %>% summarize(sum(POPULACAO))
+
+## End(Not r
+
+```
+
+Mapas Regiões de Saúde e População
+=======================================================================
+
+
+```{r map.regioes.saude, include=FALSE, echo=FALSE}
+# MAPAS REGIOES DE SAUDE
+# mapas.leitos.regsaude$name=row.names(mapas.leitos.regsaude@data)
+mapas.leitos.regsaude$name=substr(mapas.leitos.regsaude$REGSAUDE,1,2)
+
+# tm_shape(World,bbox="Brazil:RS") +
+# tm_borders()+  
+# ttm()
+map.regioes.saude = tm_shape(mapas.leitos.regsaude) +
+  tm_borders(lwd=2)+
+  tm_polygons("REGSAUDE",palette=c("Blues"), id="REGSAUDE")+
+  tm_legend(legend.outside=T, title = "Regiões de Saúde", legend.title.color="white")+
+  tm_compass(position=c("right", "bottom"))+
+  tm_scale_bar(position=c("right", "bottom"))+
+  tm_text("name",scale=0.7)
+
+
+
+tmap_leaflet(map.regioes.saude)
+# jpeg("map.regioes.saude.jpeg", units="in", width=5, height=5, res=600)
+# map.regioes.saude
+# dev.off()
+
+    # tm_facets(by="REGSAUDE", scale=3.75,ncol = 3,nrow = 4)
+```
+
+Column
+-----------------------------------------------------------------------
+### Regiões de Saúde
+
+```{r map.regioes.saude2, echo=FALSE, warning=FALSE}
+# MAPAS REGIOES DE SAUDE 2 
+map.regioes.saude2 = tm_shape(mapars.leitos) + 
+  tm_polygons("REGSAUDE", palette=c("black","white"), alpha=.0,title=c("Regiões de Saúde"), 
+                          border.col = "grey40", # color the borders white
+                border.alpha = 0.5)+
+  tm_legend(legend.outside=T, title = "Regiões de Saúde", legend.title.color="white")+
+  tm_shape(mapas.leitos.regsaude) +
+  tm_borders("black", lwd=2)+
+  tm_layout(frame = FALSE)+
+  tm_text("name", scale=.6, bg.color = "white", bg.alpha = .0, shadow = TRUE)+
+  # tm_legend()+
+  tm_compass(position=c("right", "bottom"))+
+  tm_scale_bar(position=c("right", "bottom"))+
+  tm_fill("POPULACAO", alpha = .8,
+          breaks=quantile(mapas.leitos.regsaude$POPULACAO, na.rm=TRUE), textNA = "Zero", colorNA = "red",
+           title=c("População"),
+          # palette="Blues",
+          palette=c("Blues")
+          # ,style="kmeans"
+          )+
+    tm_legend(scale=1., legend.outside=T, title = "", legend.title.color="black",legend.format = list(text.separator= "a", 
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+            position=c("left", "top"), compass.type="8star")
+
+#ttm()
+tmap_leaflet(map.regioes.saude2)
+
+   # jpeg("map.regioes.saude2.jpeg", units="in", width=5, height=5, res=600)
+   # map.regioes.saude2
+   # dev.off()
+
+```
+
+Column
+-----------------------------------------------------------------------
+### População
+
+```{r map.regioes.saudepop, echo=FALSE}
+# MAPAS REGIOES DE SAUDE 2 
+map.regioes.saude3 = tm_shape(mapars.leitos) + 
+    tm_fill("POPULACAO", alpha = .9, id="MUNICIPIO",
+           breaks=quantile(mapars.leitos$POPULACAO, na.rm=TRUE), textNA = "Zero", colorNA = "red",
+           # breaks = c(-Inf, 15588,1483771,Inf),
+           title=c("População"),
+          # palette="Blues",
+          palette=c("Blues")
+          ,style="kmeans"
+          )+
+    tm_legend(scale=1., legend.outside=T, title = "", legend.title.color="black",legend.format = list(text.separator= "a", 
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+            position=c("left", "top"), compass.type="8star")+
+
+  tm_polygons("REGSAUDE", palette=c("black","white"), alpha=.0,title=c("Regiões de Saúde"), 
+                          border.col = "grey40", # color the borders white
+                border.alpha = 0.4)+
+
+  tm_shape(mapas.leitos.regsaude) +
+  tm_borders("black", lwd=2)+
+  tm_layout(frame = FALSE)+
+  # tm_text("name", scale=.6, bg.color = "white", bg.alpha = .0, shadow = TRUE)+
+  # tm_legend()+
+  tm_compass(position=c("right", "bottom"))+
+  tm_scale_bar(position=c("right", "bottom"))
+
+
+#ttm()
+tmap_leaflet(map.regioes.saude3)
+
+   # jpeg("map.regioes.pop.jpeg", units="in", width=5, height=5, res=600)
+   # map.regioes.saude3
+   # dev.off()
+
+```
+
+
+
+```{r mapars.leitos, include=FALSE}
+tm_shape(mapars.leitos) + 
+  tm_polygons("REGSAUDE")+
+  tm_legend(legend.outside=T, title = "Regiões de Saúde", legend.title.color="white")+
+  tm_shape(mapas.leitos.regsaude) +
+  tm_borders("black", lwd=2)+
+  tm_text("name",scale=.7, bg.color = "white", bg.alpha = .5)
+
+```
+
+
+Mapa Municípios Hospitais e Leitos  {data-navmenu="Mapas Municípios"}
+=======================================================================
+
+```{r mapars.portes, include=FALSE}
+
+colnames(tab.leitos.mun.hosp1)[1]="CD_GEOCMU"
+
+mapars.portes = merge(mapars, tab.leitos.mun.hosp1, by="CD_GEOCMU", all.x=T)
+
+```
+
+## Mapa Hospitais
+
+```{r echo=FALSE}
+mapars.portes1 = 
+
+  tm_shape(mapars.portes)+
+  tm_fill(c("TOTAL","GRANDE","MEDIO","PEQUENO"), auto.palette.mapping=FALSE, 
+          #style="kmeans",
+          # breaks= 
+          #   list(NULL, c(1,5,10,20,Inf), c(1,5,10,20,Inf),
+          #   # quantile(mapars.portes$TOTAL, na.rm=TRUE),
+          #   # c(1,5,10,Inf),
+          #   # c(1,5,10,Inf),
+          #   c(1,5,10,20,Inf)
+          #   ),
+          textNA = "Zero", colorNA = "grey", 
+          title=c("Total hospitais por município", "Hospitais de grande porte","Hospitais de médio porte","Hospitais de pequeno porte"),
+          # palette="Blues",
+          palette=c("Blues"),  id="MUNICIPIO",
+          style="cont",
+          # ,legend.hist = T, legend.hist.width = .5
+  )+
+  # tm_grid(labels.cardinal = TRUE,lines = FALSE)+
+   # tm_basemap(leaflet::providers$Stamen.Watercolor)+
+  # tm_format_Europe()+
+  # tm_style_beaver()+
+  tm_compass(position=c("right", "bottom"))+
+  tm_scale_bar(position=c("right", "bottom"))+
+  # tm_text("QTEXIST", scale=0.75)+
+  tm_borders(alpha=.5)+
+  tm_text(c("TOTAL","GRANDE","MEDIO","PEQUENO"),scale=.6 )+
+  tm_layout(frame = FALSE)+
+  tm_layout(
+    # legend.hist.size = 0.5, legend.outside = T,
+    # main.title="(b) Variação absoluta população entre 2007-2015",
+    main.title.position = 'left',
+    main.title.size=1,
+    inner.margins = c(0, .02, .02, .02))+
+  tm_legend(legend.format = list(text.separator= "a", 
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+            position=c("left", "top"), compass.type="8star")+
+    tm_shape(mapas.leitos.regsaude) +
+  tm_borders("black", lwd=2)
+  
+# View(mapars.portes@data %>% group_by(REGSAUDE) %>% filter(MEDIO > 0) %>% summarise(MEDIO = n()))
+
+# tmap_mode("plot")
+#mapars.portes1 
+
+ # ttm()
+tmap_leaflet(mapars.portes1)
+
+  # jpeg("mapars.portes1.jpeg", units="in", width=10, height=10, res=600)
+  #  mapars.portes1
+  #  dev.off()
+```
+
+
+
+Mapa Leitos {data-navmenu="Mapas Municípios"}
+=======================================================================
+
+## Leitos
+
+```{r mapars.leitos1, echo=FALSE, warning=FALSE}
+
+
+# data(World)
+# 
+# ct_region = st_bbox(c(xmin = -73.83063, xmax = -28.628965,
+#                       ymin = -33.75118, ymax = 5.269331),
+#                     crs = st_crs(World)) %>% 
+#   st_as_sfc()
+
+
+mapars.leitos1 = 
+  
+  # tm_shape(World, bbox=tmaptools::bb(matrix(c(-73.83063, -33.75118, -28.628965, -5.269331 ),2,2)))+
+  
+  # tm_shape(World)+tm_basemap(leaflet::providers$Stamen.Watercolor), filter = World$economy=="Brazil"
+  #                         # , bbox=tmaptools::bb(matrix(c(-57.64974, -33.75118, -49.69135, -27.08230 ),2,2))
+  #                         # st_bbox(c(xmin = 16.1, xmax = 16.6, ymax = 48.6, ymin = 47.9), crs = st_crs(4326))
+  # 
+  #                         ) +
+  # tm_borders() +
+  #       tm_shape(World,bbox = "Brazil::RS") +
+  # tm_borders("grey40", lwd=2)+
+  tm_shape(mapars.leitos)+
+  tm_fill(c("QTEXIST.na","QTSUS.na","QTNSUS.na"), auto.palette.mapping=FALSE, id="MUNICIPIO",
+          #style="kmeans",
+          popup.vars = c("QTEXIST"= "QTEXIST.na",
+                         "QTSUS"= "QTSUS.na",
+                         "QTNSUS" = "QTNSUS.na"),
+          breaks=quantile(tab.leitos.mun$QTEXIST.na, na.rm=TRUE), textNA = "Zero", colorNA = "red",
+          title=c("Leitos existentes", "Leitos SUS existentes", "Leitos não SUS existentes"),
+          # palette="Blues",
+          palette=c("Blues"),
+          style="kmeans",
+          # ,legend.hist = T, legend.hist.width = .5
+  )+
+  # tm_grid(labels.cardinal = TRUE,lines = FALSE)+
+   # tm_basemap(leaflet::providers$Stamen.Watercolor)+
+  # tm_format_Europe()+
+  # tm_style_beaver()+
+  tm_compass(position=c("right", "bottom"))+
+  tm_scale_bar(position=c("right", "bottom"))+
+  # tm_text("QTEXIST", scale=0.75)+
+  tm_borders(alpha=.5)+
+  tm_layout(frame = FALSE)+
+  tm_layout(
+    # legend.hist.size = 0.5, legend.outside = T,
+    # main.title="(b) Variação absoluta população entre 2007-2015",
+    main.title.position = 'left',
+    main.title.size=1,
+    inner.margins = c(0, .02, .02, .02))+
+  tm_legend(legend.format = list(text.separator= "a", 
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+            position=c("left", "top"), compass.type="8star")+
+    tm_shape(mapas.leitos.regsaude) +
+  tm_borders("black", lwd=2)
+ 
+
+tmap_leaflet(mapars.leitos1)
+
+ # ttm()
+# tmap_leaflet(mapars.leitos1)
+
+ # jpeg("mapars.leitos1.jpeg", units="in", width=15, height=5, res=600)
+ #  mapars.leitos1
+ #  dev.off()
+
+# mapars.leitos1
+
+# tmap_save(mapars.leitos1, "mapars.leitos1.html")
+
+```
+
+
+
+
+Quociente locacional {data-navmenu="Mapas Municípios"}
+=======================================================================
+
+## 
+
+```{r echo=FALSE}
+mapars.ql = tm_shape(mapars.leitos)+
+tm_fill(c("QL.QTEXIST.na","QL.QTSUS.na","QL.QTNSUS.na"), auto.palette.mapping=FALSE, id="MUNICIPIO",
+        title=c("Quociente Locacional total leitos","Quociente Locacional leitos SUS", "Quociente Locacional leitos não SUS"),
+        breaks=c(-Inf,1,2,Inf), textNA = "Zero", colorNA = "red",
+        palette="Blues")+
+        #palette=c("red","white","blue"))+
+# tm_grid(labels.cardinal = TRUE,lines = FALSE)+
+# tm_format_Europe()+
+# tm_style_beaver()+
+  tm_layout(frame = FALSE)+
+tm_compass(position=c("right", "bottom"))+
+tm_scale_bar(position=c("right", "bottom"))+
+# tm_text("QTEXIST", scale=0.75)+
+tm_borders(alpha=.5)+
+tm_layout(
+  # main.title="(b) Variação absoluta população entre 2007-2015",
+  main.title.position = 'left',
+  main.title.size=1)+
+  tm_legend(legend.format = list(text.separator= "a", 
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+          position=c("left", "top"), compass.type="8star")+
+    tm_shape(mapas.leitos.regsaude) +
+  tm_borders("black", lwd=2)
+
+
+
+tmap_leaflet(mapars.ql)
+
+  # jpeg("mapars.ql.jpeg", units="in", width=15, height=5, res=600)
+  # mapars.ql
+  # dev.off()
+```
+
+
+
+Mapa Leitos por 10.00 mil hab. {data-navmenu="Mapas Municípios"}
+=======================================================================
+
+## 
+
+```{r, echo=FALSE, warning=FALSE}
+mapars.leitos.mil1 = tm_shape(mapars.leitos)+
+tm_fill(c("TOTAL10MIL.na", "TOTAL10MIL.SUS.na","TOTAL10MIL.NSUS.na"), auto.palette.mapping=FALSE, id="MUNICIPIO",
+          title=c("Leitos existentes por 10.000 hab.",
+                  "Leitos SUS por 10.000 hab",
+                  "Leitos não SUS por 10.000 hab"),
+          breaks=quantile(tab.leitos.mun$TOTAL10MIL.na, na.rm=TRUE), textNA = "Zero", colorNA = "red",
+          palette="Blues",
+          style="kmeans")+
+          # palette=c("orange","white","blue")+
+# tm_grid(labels.cardinal = TRUE,lines = FALSE)+
+# tm_format_Europe()+
+# tm_style_beaver()+
+tm_layout(frame = FALSE)+
+tm_compass(position=c("right", "bottom"))+
+tm_scale_bar(position=c("right", "bottom"))+
+# tm_text("QTEXIST", scale=0.75)+
+tm_borders(alpha=.5)+
+tm_layout(
+  # main.title="(b) Variação absoluta população entre 2007-2015",
+  main.title.position = 'left',
+  main.title.size=1)+
+  tm_legend(legend.format = list(text.separator= "a", 
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+          position=c("left", "top"), compass.type="8star")+
+    tm_shape(mapas.leitos.regsaude) +
+  tm_borders("black", lwd=2)
+     # tm_bubbles("QTSUS", col = "QTNSUS", 
+     #           border.col = "black", border.alpha = .5, 
+     #           style="kmeans", 
+     #           # breaks=c(-Inf, seq(0, 6, by=2), Inf),
+     #           palette="-RdYlBu", contrast=1, 
+     #           title.size="QTD SUS", 
+     #           title.col="QTD NÃO SUS", id="name")
+
+
+tmap_leaflet(mapars.leitos.mil1)
+    # jpeg("mapars.leitos.mil11.jpeg", units="in", width=15, height=5, res=600)
+    # mapars.leitos.mil1
+    # dev.off()
+```
+
+
+QL leitos 10.000 mil hab. {data-navmenu="Mapas Municípios"}
+=======================================================================
+
+### 
+
+```{r echo=FALSE}
+mapars.ql10mil = tm_shape(mapars.leitos)+
+tm_fill(c("QL.TOTAL10MIL.na","QL.TOTAL10MILSUS.na","QL.TOTAL10MILNSUS.na"), id="MUNICIPIO", auto.palette.mapping=FALSE, 
+        title=c("Quociente Locacional total leitos \n(por 10.000 hab.)",
+                "Quociente Locacional leitos SUS \n(por 10.000 hab.)", 
+                "Quociente Locacional leitos não SUS \n(por 10.000 hab.)"),
+        breaks=c(-Inf,1,2,Inf), textNA = "Zero", colorNA = "red",
+        palette="Blues")+
+        #palette=c("red","white","blue"))+
+# tm_grid(labels.cardinal = TRUE,lines = FALSE)+
+# tm_format_Europe()+
+# tm_style_beaver()+
+  tm_layout(frame = FALSE)+
+tm_compass(position=c("right", "bottom"))+
+tm_scale_bar(position=c("right", "bottom"))+
+# tm_text("QTEXIST", scale=0.75)+
+tm_borders(alpha=.5)+
+tm_layout(
+  main.title.position = 'left',
+  main.title.size=1)+
+  tm_legend(legend.format = list(text.separator= "a", 
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+          position=c("left", "top"), compass.type="8star")+
+    tm_shape(mapas.leitos.regsaude) +
+  tm_borders("black", lwd=2)
+
+tmap_leaflet(mapars.ql10mil)
+
+# jpeg("mapars.ql10mil.jpeg", units="in", width=15, height=5, res=600)
+# mapars.ql10mil
+# dev.off()
+
+```
+
+
+
+
+Leitos UTI Adultos (I, II e III) {data-navmenu="Mapas Municípios"}
+=======================================================================
+
+```{r, echo=FALSE, warning=FALSE, include=FALSE}
+# TOTAIS MUNICIPIOS por tipo de leito - ok 
+
+tab.leitos.tipo =  leitos.cnes %>% 
+    dplyr::select("CODUFMUN","MUNICIPIO","HOSPITAL","LEITO","QTEXIST","QTSUS","QTNSUS","POPULACAO") %>%
+    group_by(CODUFMUN,MUNICIPIO,LEITO) %>%
+    summarise("QTEXIST" = sum(QTEXIST),
+              "QTSUS" = sum(QTSUS),
+              "QTNSUS" = sum(QTNSUS))
+
+# tab.leitos.tipo$COREDE = x.coredes[match(as.factor(tab.leitos.tipo$CODUFMUN), as.factor(x.coredes$CODUFMUN)),"COREDE"]
+  # filter(MUNICIPIO =="Ijuí")
+
+tab.leitos.tipo  = x.pop2020corede %>%
+  left_join(tab.leitos.tipo, by = "CODUFMUN") %>%
+  dplyr::select(-c("ANO","MUNICIPIO.y","ID"))
+  
+colnames(tab.leitos.tipo)[2] = "MUNICIPIO"
+# colnames(tab.leitos.tipo)[3] = "POPULACAO"
+
+
+# View(tab.leitos.tipo)
+```
+
+```{r, echo=FALSE}
+tab.leitos.tipo.uti.ad = data.frame(tab.leitos.tipo %>% 
+  filter(str_starts(LEITO, "UTI A")) %>%
+  group_by(CODUFMUN, MUNICIPIO) %>%
+  summarise("QTEXIST" = sum(QTEXIST),
+            "QTSUS" = sum(QTSUS),
+            "QTNSUS" = sum(QTNSUS)))
+
+tab.leitos.tipo.uti.ad$CODUFMUN = as.character(tab.leitos.tipo.uti.ad$CODUFMUN)
+
+tab.leitos.tipo.uti.ad  = x.etaria.tot %>%
+  dplyr::left_join(tab.leitos.tipo.uti.ad, by = "CODUFMUN") %>%
+  dplyr::select(-c("MUNICIPIO.y")) %>%
+  dplyr::mutate(MUNICIPIO = MUNICIPIO.x)
+
+
+
+```
+
+```{r, echo = FALSE}
+mapa.leitos.tipo.uti.ad = tab.leitos.tipo.uti.ad
+
+colnames(mapa.leitos.tipo.uti.ad)[1]="CD_GEOCMU"
+
+mapa.leitos.tipo.uti.ad = merge(mapars, mapa.leitos.tipo.uti.ad, by="CD_GEOCMU", all.x=T)
+
+
+#### MAPA LEITOS UTI ADULTO
+mapa.leitos.tipo.uti.ad1 = 
+  tm_shape(mapa.leitos.tipo.uti.ad)+
+  tm_fill(c("QTEXIST","QTSUS","QTNSUS"), auto.palette.mapping=FALSE, id="MUNICIPIO",
+          #style="kmeans",
+          popup.vars = c("QTEXIST"= "QTEXIST",
+                         "QTSUS"= "QTSUS",
+                         "QTNSUS" = "QTNSUS"),
+          breaks=quantile(tab.leitos.mun$QTEXIST.na, na.rm=TRUE), textNA = "Zero", colorNA = "red",
+          title=c("UTIs Adulto existentes", "UTIs Adulto SUS existentes", "UTIs Adtulo não SUS existentes"),
+          # palette="Blues",
+          palette=c("Blues"),
+          style="kmeans",
+          # ,legend.hist = T, legend.hist.width = .5
+  )+
+  tm_compass(position=c("right", "bottom"))+
+  tm_scale_bar(position=c("right", "bottom"))+
+  # tm_text("QTEXIST", scale=0.75)+
+  tm_borders(alpha=.5)+
+  tm_layout(frame = FALSE)+
+  tm_layout(
+
+    main.title.position = 'left',
+    main.title.size=1,
+    inner.margins = c(0, .02, .02, .02))+
+  tm_legend(legend.format = list(text.separator= "a", 
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+            position=c("left", "top"), compass.type="8star")+
+    tm_shape(mapas.leitos.regsaude) +
+  tm_borders("black", lwd=2)
+ 
+
+tmap_leaflet(mapa.leitos.tipo.uti.ad1)
+
+# jpeg("mapa.leitos.tipo.uti.ad1.jpeg", units="in", width=15, height=5, res=600)
+# mapa.leitos.tipo.uti.ad1
+# dev.off()
+
+```
 
 ```{r}
-# testando os resultados
-library(dplyr)
-View(leitos.cnes %>% filter(MUNICIPIO =="Ijuí",
-                            LEITO =="UTI NEONATAL - TIPO I"))
+# library(ggplot2)
+# ggplot(mapa.leitos.tipo.uti.ad, aes(x=POPULACAO, y=QTEXIST))+
+#   ggtitle("")+
+#   geom_point()+
+#     # geom_text(aes(label=MUNICIPIO),hjust=0, vjust=0)
+#      geom_smooth()
 ```
+
+
+```{r, include=FALSE}
+resumo = tab.leitos.tipo %>%
+  summarise("QTD LEITOS" = sum(QTEXIST, na.rm=T),
+            "QTD LEITOS SUS" = sum(QTSUS, na.rm=T),
+            "QTD LEITOS NÃO SUS" = sum(QTNSUS, na.rm=T),
+            "TOTAL MUNICÍPIOS" = length(unique(MUNICIPIO)),
+            "TOTAL MUNICÍPIOS COM LEITOS" = length(unique(leitos.cnes$MUNICIPIO)),
+            "TOTAL MUNICÍPIOS SEM LEITOS" = 497 -length(unique(leitos.cnes$MUNICIPIO)),
+            "TOTAL MUNICÍPIOS COM LEITOS SUS" = length(unique(tab.leitos.mun$QL.QTSUS.na)),
+              "TOTAL MUNICÍPIOS COM LEITOS NÃO SUS" = length(unique(tab.leitos.mun$QTNSUS.na))
+            )
+
+
+View(t(resumo))
+```
+
+
+```{r, include=FALSE}
+View(leitos.cnes %>% filter(str_starts(LEITO, "UTI")) %>% summarise(sum(QTSUS)))
+```
+
+```{r, include=FALSE}
+View(tab.leitos.tipo %>% filter(str_starts(LEITO, "UTI")))
+```
+
+```{r, include=FALSE}
+uti = tab.leitos.estado.tipo %>% filter(str_starts(LEITO, "UTI"))
+write.csv(uti, "uti.csv")
+```
+
+
+```{r, include=FALSE}
+# ## REVISAR
+# 
+# colnames(tab.leitos.tipo)[1]="CD_GEOCMU"
+# 
+# mapars.leitos.tipo = merge(mapars, tab.leitos.tipo, by="CD_GEOCMU", all.x=T)
+# 
+#   mapars.leitos.tipo1 = tm_shape(tab.leitos.tipo %>% filter(str_starts(LEITO, "UTI")))+
+# tm_fill("QTEXIST", auto.palette.mapping=FALSE, 
+#           title="Leitos SUS",
+#           breaks=quantile(tab.leitos.tipo$QTEXIST, na.rm=TRUE), textNA = "Zero", colorNA = "red",
+#           palette="Greens",
+#           style="kmeans")+
+# tm_format_Europe()+
+# tm_style_beaver()+
+# tm_compass(position=c("right", "bottom"))+
+# tm_scale_bar(position=c("left", "bottom"))+
+# # tm_text("QTEXIST", scale=0.75)+
+# tm_borders(alpha=.5)+
+# tm_layout(
+#   # main.title="(b) Variação absoluta população entre 2007-2015",
+#   main.title.position = 'left',
+#   main.title.size=1)+
+#   tm_legend(legend.format = list(text.separator= "a", 
+#                                  text.or.more="ou maior",
+#                                  text.less.than="menor que",
+#                                  fun=function(x) formatC(x, digits=0, format="d")),
+#           position=c("left", "top"), compass.type="8star")+
+#   tm_facets(by = "LEITO")
+# library(tmap)
+# mapars.leitos.tipo1
+```
+
+
+```{r, include=FALSE}
+# ggplot(tab.leitos.tipo %>% filter(str_detect(LEITO, "UTI")), aes(x=POPULACAO, y=TOTAL10MIL))+
+#   ggtitle("")+
+#   geom_point()+
+#   facet_wrap("LEITO")+
+#    # geom_text(aes(label=MUNICIPIO),hjust=0, vjust=0)
+#      geom_smooth()
+```
+
+```{r, echo=FALSE, warning=FALSE}
+# ggplot(tab.leitos.tipo %>% filter(LEITO =="CLINICA GERAL"), aes(x=POPULACAO, y=log(TOTAL10MIL)))+
+#   ggtitle("CLINICA GERAL")+
+#   geom_point()+
+#    # geom_text(aes(label=MUNICIPIO),hjust=0, vjust=0)
+#      geom_smooth()
+```
+
+```{r, echo=FALSE, warning=FALSE}
+# ggplot(tab.leitos.tipo %>% filter(LEITO =="CIRURGIA GERAL"), aes(x=POPULACAO, y=log(TOTAL10MIL)))+
+#   ggtitle("CIRURGIA GERAL")+
+#   geom_point()+
+#     geom_text(aes(label=MUNICIPIO),hjust=0, vjust=0)+
+#      geom_smooth()
+```
+
+```{r, include=FALSE}
+# ggplot(tab.leitos.tipo %>% filter(LEITO =="ONCOLOGIA"), aes(x=POPULACAO, y=log(TOTAL10MIL)))+
+#   ggtitle("ONCOLOGIA")+
+#   geom_point()+
+#     # geom_text(aes(label=MUNICIPIO),hjust=0, vjust=0)+
+#      geom_smooth()
+```
+
+## Coredes
+
+```{r, echo=FALSE, warning=FALSE}
+# TOTAIS COREDES ok
+# tab.leitos.coredes =  tab.leitos.mun %>% 
+#     dplyr::select("CD_GEOCMU","MUNICIPIO","QTEXIST","QTSUS","QTNSUS","POPULACAO","COREDE") %>%
+#     group_by(COREDE) %>%
+#     summarise("QTEXIST" = sum(QTEXIST),
+#               "QTSUS" = sum(QTSUS),
+#               "QTNSUS" = sum(QTNSUS),
+#               "POPULACAO" = sum(unique(as.numeric(POPULACAO))),
+#               TOTAL10MIL = round(sum(QTEXIST)*10000/as.numeric(POPULACAO),2),
+#               TOTAL10MIL.SUS = round(sum(QTSUS)*10000/as.numeric(POPULACAO),2),
+#               TOTAL10MIL.NSUS = round(sum(QTNSUS)*10000/as.numeric(POPULACAO),2)) 
+#   
+# # write.csv(tab.leitos.coredes, "tab.leitos.coredes.csv")
+# View(tab.leitos.coredes)
+# knitr::kable(tab.leitos.coredes)
+```
+
+```{r, include=FALSE}
+# TOTAIS COREDES mun ok
+
+# tab.leitos.coredes.m = leitos.cnes %>% 
+#     dplyr::select("CODUFMUN","MUNICIPIO","HOSPITAL","LEITO","QTEXIST","QTSUS","QTNSUS","POPULACAO","COREDE","REGSAUDE") %>%
+#     group_by(CODUFMUN,REGSAUDE,COREDE,LEITO,MUNICIPIO) %>%
+#     summarise("QTEXIST" = sum(QTEXIST),
+#               "QTSUS" = sum(QTSUS),
+#               "QTNSUS" = sum(QTNSUS),
+#               "POPULACAO" = sum(unique(as.numeric(POPULACAO))),
+#               TOTAL10MIL = round(sum(QTEXIST)*10000/as.numeric(POPULACAO),2),
+#               TOTAL10MIL.SUS = round(sum(QTSUS)*10000/as.numeric(POPULACAO),2),
+#               TOTAL10MIL.NSUS = round(sum(QTNSUS)*10000/as.numeric(POPULACAO),2))
+# 
+# # tab.leitos.coredes.m = x.coredes %>% inner_join(tab.leitos.coredes.m, by = "CODUFMUN")
+# knitr::kable(head(tab.leitos.coredes.m))
+# View(tab.leitos.coredes.m)
+```
+
+
+
+```{r, include=FALSE}
+## Regiao de Saúde
+# TOTAIS REGISAO SAUDE ok
+tab.leitos.regsaude =  tab.leitos.mun %>% 
+    dplyr::select("CODUFMUN","MUNICIPIO","QTEXIST","QTSUS","QTNSUS","POPULACAO","REGSAUDE") %>%
+    group_by(REGSAUDE) %>%
+    summarise("QTEXIST" = sum(QTEXIST),
+              "QTSUS" = sum(QTSUS),
+              "QTNSUS" = sum(QTNSUS),
+              "POPULACAO" = sum(unique(as.numeric(POPULACAO))),
+              TOTAL10MIL = round(sum(QTEXIST)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.SUS = round(sum(QTSUS)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.NSUS = round(sum(QTNSUS)*10000/as.numeric(POPULACAO),2)) 
+
+# QL TOTAL REGSAUDE
+tab.leitos.regsaude$QL.QTEXIST = round((tab.leitos.regsaude$QTEXIST/sum(tab.leitos.regsaude$QTEXIST))/
+  (as.numeric(tab.leitos.regsaude$POPULACAO)/sum(as.numeric(tab.leitos.regsaude$POPULACAO))),2)
+
+# QL SUS REGSAUDE
+tab.leitos.regsaude$QL.QTSUS = round((tab.leitos.regsaude$QTSUS/sum(tab.leitos.regsaude$QTSUS))/
+  (as.numeric(tab.leitos.regsaude$POPULACAO)/sum(as.numeric(tab.leitos.regsaude$POPULACAO))),2)
+
+# QL nao SUS REGSAUDE
+tab.leitos.regsaude$QL.QTNSUS = round((tab.leitos.regsaude$QTNSUS/sum(tab.leitos.regsaude$QTNSUS))/
+  (as.numeric(tab.leitos.regsaude$POPULACAO)/sum(as.numeric(tab.leitos.regsaude$POPULACAO))),2)
+  
+# write.csv(tab.leitos.regsaude, "tab.leitos.regsaude10.000.csv")
+View(tab.leitos.regsaude)
+# knitr::kable(tab.leitos.regsaude)
+```
+
+
+
+```{r, include=FALSE}
+tab.leitos.regsaude.hosp = tab.leitos.mun.hosp1 %>%
+  group_by(REGSAUDE) %>%
+  summarise("GRANDE" = sum(GRANDE, na.rm=TRUE),
+            "MEDIO" = sum(MEDIO, na.rm=TRUE),
+            "PEQUENO" = sum(PEQUENO, na.rm=TRUE)) %>%
+  rowwise() %>% 
+  mutate(TOTAL = sum(GRANDE, MEDIO, PEQUENO, na.rm=TRUE)) %>%
+  mutate(TOTAL = ifelse(TOTAL ==0,NA, TOTAL),
+         GRANDE = ifelse(GRANDE ==0,NA, GRANDE),
+         PEQUENO = ifelse(PEQUENO ==0,NA, PEQUENO))
+  
+# View(tab.leitos.regsaude.hosp)
+
+```
+
+Hospitais Regiões de Saúde {data-navmenu="MMapas Regiões de Saúde"}
+=======================================================================
+
+## reg
+
+```{r, include=FALSE}
+library(spdplyr)
+mapa.regsaude.porte = merge(mapas.leitos.regsaude, tab.leitos.regsaude.hosp, by="REGSAUDE", all.x=T)
+
+mapa.regsaude.porte = mapa.regsaude.porte %>%
+      mutate(GRANDE10MIL = round((GRANDE)*100000/as.numeric(POPULACAO),2),
+             MEDIO10MIL = round((MEDIO)*100000/as.numeric(POPULACAO),2),
+              PEQUENO10MIL = round((PEQUENO)*100000/as.numeric(POPULACAO),2),
+             TOTAL10MIL = round((TOTAL)*100000/as.numeric(POPULACAO),2))
+  
+```
+
+
+
+```{r, echo=FALSE}
+mapa.regsaude.porte1 =tm_shape(mapa.regsaude.porte)+
+  tm_fill(c("TOTAL","GRANDE","MEDIO","PEQUENO"), auto.palette.mapping=FALSE,id="REGSAUDE",
+          #style="kmeans",
+          # breaks= 
+          #   list(NULL, c(1,5,10,20,Inf), c(1,5,10,20,Inf),
+          #   # quantile(mapars.portes$TOTAL, na.rm=TRUE),
+          #   # c(1,5,10,Inf),
+          #   # c(1,5,10,Inf),
+          #   c(1,5,10,20,Inf)
+          #   ),
+          textNA = "Zero", colorNA = "grey", 
+          title=c("Total hospitais por Região de Saúde", "Hospitais de grande porte","Hospitais de médio porte","Hospitais de pequeno porte"),
+          # palette="Blues",
+          palette=c("Blues"),
+          style="cont",
+          # ,legend.hist = T, legend.hist.width = .5
+  )+
+  # tm_grid(labels.cardinal = TRUE,lines = FALSE)+
+    # tm_basemap(leaflet::providers$Stamen.Watercolor)+
+  # tm_format_Europe()+
+  # tm_style_beaver()+
+  tm_compass(position=c("right", "bottom"))+
+  tm_scale_bar(position=c("right", "bottom"))+
+  # tm_text("QTEXIST", scale=0.75)+
+  tm_borders(alpha=.5)+
+  tm_text(c("TOTAL","GRANDE","MEDIO","PEQUENO"),scale=.75 )+
+  tm_layout(frame = FALSE)+
+  tm_layout(
+    # legend.hist.size = 0.5, legend.outside = T,
+    # main.title="(b) Variação absoluta população entre 2007-2015",
+    main.title.position = 'left',
+    main.title.size=1,
+    inner.margins = c(0, .02, .02, .02))+
+  tm_legend(legend.format = list(text.separator= "a", 
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+            position=c("left", "top"), compass.type="8star")+
+    tm_shape(mapas.leitos.regsaude) +
+  tm_borders("black", lwd=2)
+  
+
+
+# tmap_mode("plot")
+tmap_leaflet(mapa.regsaude.porte1)
+
+ # ttm()
+# tmap_leaflet(mapars.leitos1)
+
+  # jpeg("mapa.regsaude.porte1.jpeg", units="in", width=10, height=10, res=600)
+  #  mapa.regsaude.porte1
+  #  dev.off()
+
+```
+
+Leitos Regiões de Saúde {data-navmenu="Mapas Regiões de Saúde"}
+=======================================================================
+
+## reg2
+
+```{r, include=FALSE}
+
+mapars.leitos.regsaude = merge(mapas.leitos.regsaude, tab.leitos.regsaude, by="REGSAUDE", all.x=T)
+
+```
+
+
+
+```{r, echo=FALSE}
+mapa.regsaude1 = tm_shape(mapars.leitos, palette="Greys") +
+  tm_borders("gray", lwd=0.1)+
+  tm_shape(mapars.leitos.regsaude)+
+  tm_fill(c("QTEXIST","QTSUS","QTNSUS"), auto.palette.mapping=FALSE, id="REGSAUDE",
+          title=c("Leitos existentes por Região de Saúde","Leitos SUS por Região de Saúde", "Leitos não SUS por Região de Saúde"),
+          breaks=quantile(tab.leitos.regsaude$QTEXIST, na.rm=TRUE), textNA = "Zero", colorNA = "red",
+          palette="Blues", alpha = .8,
+          style="cont")+
+  tm_layout(frame = FALSE)+
+  tm_compass(position=c("right", "bottom"))+
+  tm_scale_bar(position=c("left", "bottom"))+
+  tm_text(c("QTEXIST","QTSUS","QTNSUS"), scale=.7, )+
+  tm_borders(alpha=.5)+
+  tm_layout(
+    main.title.position = 'left',
+    main.title.size=1)+
+  tm_legend(legend.format = list(text.separator= "a",
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+            position=c("left", "top"), compass.type="8star")
+
+tmap_leaflet(mapa.regsaude1)
+
+   # jpeg("mapa.regsaude1.jpeg", units="in", width=15, height=5, res=600)
+   #  mapa.regsaude1
+   #  dev.off()
+ 
+```
+
+
+Leitos por 10.000 hab. Regiões de Saúde {data-navmenu="Mapas Regiões de Saúde"}
+=======================================================================
+
+## reg3
+
+```{r, echo=FALSE}
+mapa.regsaude10mil =   tm_shape(mapars.leitos, palette="Greys") +
+  tm_borders("gray", lwd=0.1)+
+  tm_shape(mapars.leitos.regsaude)+
+  tm_fill(c("TOTAL10MIL","TOTAL10MIL.SUS","TOTAL10MIL.NSUS"), 
+          auto.palette.mapping=FALSE, id = "REGSAUDE",
+          title=c("Leitos existentes por 10.000 hab.",
+                  "Leitos SUS por 10.000 hab.", 
+                  "Leitos não SUS por 10.000 hab."),
+          breaks=quantile(tab.leitos.regsaude$TOTAL10MIL, na.rm=TRUE), textNA = "Zero", colorNA = "red",
+          palette="Blues", alpha = .8,
+          style="cont")+
+  tm_layout(frame = FALSE)+
+  tm_compass(position=c("right", "bottom"))+
+  tm_scale_bar(position=c("left", "bottom"))+
+  tm_text(c("TOTAL10MIL","TOTAL10MIL.SUS","TOTAL10MIL.NSUS"), scale=.7, )+
+  tm_borders(alpha=.5)+
+  tm_layout(
+    main.title.position = 'left',
+    main.title.size=1)+
+  tm_legend(legend.format = list(text.separator= "a",
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+            position=c("left", "top"), compass.type="8star")
+
+
+tmap_leaflet(mapa.regsaude10mil)
+  
+    # jpeg("mapa.regsaude10mil.jpeg", units="in", width=15, height=5, res=600)
+    #  mapa.regsaude10mil
+    #  dev.off()
+```
+
+Quociente Locacional Regiões de Saúde {data-navmenu="Mapas Regiões de Saúde"}
+=======================================================================
+
+## ql
+
+```{r, echo=FALSE}
+mapa.regsaudeQL =   tm_shape(mapars.leitos, palette="Greys") +
+   tm_borders("gray", lwd=0.1)+
+tm_shape(mapars.leitos.regsaude)+
+tm_fill(c("QL.QTEXIST","QL.QTSUS","QL.QTNSUS"), auto.palette.mapping=FALSE, id="REGSAUDE",
+          title=c("Quociente Locacional leitos existentes",
+                  "Quociente Locacional Leitos SUS", 
+                  "Quociente Locacional Leitos não SUS"),
+           breaks=c(0,1,2), textNA = "Zero", colorNA = "red",
+          palette="Blues", alpha = .8,
+          style="cont")+
+tm_layout(frame = FALSE)+
+tm_compass(position=c("right", "bottom"))+
+tm_scale_bar(position=c("left", "bottom"))+
+tm_text(c("QL.QTEXIST","QL.QTSUS","QL.QTNSUS"), scale=.7, )+
+tm_borders(alpha=.5)+
+tm_layout(
+
+  main.title.position = 'left',
+  main.title.size=1)+
+  tm_legend(legend.format = list(text.separator= "a",
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+          position=c("left", "top"), compass.type="8star")
+
+
+tmap_leaflet(mapa.regsaudeQL)
+  
+     # jpeg("mapa.regsaudeQL.jpeg", units="in", width=15, height=5, res=600)
+     #  mapa.regsaudeQL
+     #  dev.off()
+```
+
+
+Leitos UTI Adulto (I, II e III) {data-navmenu="Mapas Regiões de Saúde"}
+=======================================================================
+
+## uti reg
+
+```{r, include=FALSE, echo=FALSE}
+
+tab.leitos.regsaude.uti.ad = 
+leitos.cnes %>% 
+    dplyr::select("CODUFMUN","MUNICIPIO","HOSPITAL","LEITO","QTEXIST","QTSUS","QTNSUS","POPULACAO","REGSAUDE") %>%
+    group_by(CODUFMUN,REGSAUDE,MUNICIPIO,LEITO) %>%
+    summarise("QTEXIST" = sum(QTEXIST),
+              "QTSUS" = sum(QTSUS),
+              "QTNSUS" = sum(QTNSUS),
+              "POPULACAO" = sum(unique(as.numeric(POPULACAO))),
+              TOTAL10MIL = round(sum(QTEXIST)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.SUS = round(sum(QTSUS)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.NSUS = round(sum(QTNSUS)*10000/as.numeric(POPULACAO),2))
+
+
+
+tab.leitos.regsaude.uti.ad  = x.pop2020corede %>%
+  left_join(tab.leitos.regsaude.uti.ad, by = "CODUFMUN") %>%
+  dplyr::select(-c("ANO","MUNICIPIO.y","ID","POPULACAO.y","REGSAUDE.y"))
+
+colnames(tab.leitos.regsaude.uti.ad)[2] = "MUNICIPIO"
+colnames(tab.leitos.regsaude.uti.ad)[3] = "POPULACAO"
+colnames(tab.leitos.regsaude.uti.ad)[5] = "REGSAUDE"
+
+View(tab.leitos.regsaude.uti.ad)
+
+tab.leitos.regsaude.uti.ad = 
+tab.leitos.regsaude.uti.ad %>% 
+    dplyr::select("CODUFMUN","MUNICIPIO","LEITO","QTEXIST","QTSUS","QTNSUS","POPULACAO","REGSAUDE") %>%
+  filter(str_starts(LEITO, "UTI A")) %>%
+    group_by(REGSAUDE) %>%
+    summarise("QTEXIST" = sum(QTEXIST, na.rm = TRUE),
+              "QTSUS" = sum(QTSUS, na.rm = TRUE),
+              "QTNSUS" = sum(QTNSUS, na.rm = TRUE),
+              "POPULACAO" = sum(unique(as.numeric(POPULACAO)), na.rm = TRUE),
+              TOTAL10MIL = round(sum(QTEXIST, na.rm = TRUE)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.SUS = round(sum(QTSUS, na.rm = TRUE)*10000/as.numeric(POPULACAO),2),
+              TOTAL10MIL.NSUS = round(sum(QTNSUS, na.rm = TRUE)*10000/as.numeric(POPULACAO),2))
+
+tab.leitos.regsaude.uti.ad$POPULACAO.TOTAL.REG = tab.leitos.regsaude[match(tab.leitos.regsaude.uti.ad$REGSAUDE, tab.leitos.regsaude$REGSAUDE),"POPULACAO"]
+
+tab.leitos.regsaude.uti.ad$POP.SEM.UTI = tab.leitos.regsaude.uti.ad$POPULACAO.TOTAL.REG - tab.leitos.regsaude.uti.ad$POPULACAO
+
+tab.leitos.regsaude.uti.ad = mapas.leitos.regsaude %>%
+  dplyr::left_join(tab.leitos.regsaude.uti.ad, by = "REGSAUDE")
+
+# tab.leitos.regsaude.uti.ad = as.data.frame(tab.leitos.regsaude.uti.ad)
+# equip.cnes$POPULACAO = as.numeric(equip.cnes$POPULACAO)
+
+ # View(tab.leitos.regsaude.uti.ad)
+
+# write.csv(tab.leitos.regsaude.uti,"tab.leitos.regsaude.uti10000.csv")
+```
+
+
+```{r, echo=FALSE}
+
+mapa.leitos.regsaude.uti.ad = tab.leitos.regsaude.uti.ad
+
+mapa.leitos.regsaude.uti.ad1 =   tm_shape(mapars.leitos.regsaude, palette="Greys") +
+   tm_borders("gray", lwd=0.1)+
+tm_shape(mapa.leitos.regsaude.uti.ad)+
+tm_fill(c("QTEXIST","QTSUS","QTNSUS"), auto.palette.mapping=FALSE, id="REGSAUDE",
+          title=c("Leitos UTI Adulto existentes",
+                  "Leitos UTI Adulto SUS", 
+                  "Leitos UTI Adulto não SUS"),
+             # breaks=quantile(tab.leitos.regsaude.uti.ad$QTEXIST, na.rm=TRUE),
+        textNA = "Zero", colorNA = "red",
+          palette="Blues", alpha = .8,
+          style="cont")+
+tm_layout(frame = FALSE)+
+tm_compass(position=c("right", "bottom"))+
+tm_scale_bar(position=c("left", "bottom"))+
+tm_text(c("QTEXIST","QTSUS","QTNSUS"), scale=.7, )+
+tm_borders(alpha=.5)+
+tm_layout(
+
+  main.title.position = 'left',
+  main.title.size=1)+
+  tm_legend(legend.format = list(text.separator= "a",
+                                 text.or.more="ou maior",
+                                 text.less.than="menor que",
+                                 fun=function(x) formatC(x, digits=0, format="d")),
+          position=c("left", "top"), compass.type="8star")
+
+
+tmap_leaflet(mapa.leitos.regsaude.uti.ad1)
+  
+     # jpeg("mmapa.leitos.regsaude.uti.ad1.jpeg", units="in", width=15, height=5, res=600)
+     #  mapa.leitos.regsaude.uti.ad1
+     #  dev.off()
+```
+
+
+Autores
+=======================================================================
+
+ - Felipe Micail da Silva Smolski ([*Lattes*](http://buscatextual.cnpq.br/buscatextual/visualizacv.do?id=K8279859Z3))
+ 
+ - Prof. Iara Endruweit Battisti ([*Lattes*](http://buscatextual.cnpq.br/buscatextual/visualizacv.do?id=K4798297H5))
+
 
