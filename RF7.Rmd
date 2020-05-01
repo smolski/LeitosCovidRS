@@ -1,0 +1,36 @@
+---
+title: "Leitos e Respiradores Hospitalares na RF7"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+load("D:/Github/LeitosCovid-RS/leitoscovid.RData")
+```
+
+## Introdução
+
+
+
+## Desenvolvimento
+
+```{r}
+
+```
+
+
+
+
+
+
+## Conclusão
+
+
+## Referências
+
+
+
+
+
+
+
