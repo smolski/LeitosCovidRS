@@ -4,6 +4,8 @@ output:
   flexdashboard::flex_dashboard:
     orientation: columns
     self_contained: FALSE
+    includes:
+      in_header: google-analytics.html
 ---
 
 
@@ -11,6 +13,9 @@ output:
 ```{r, include=FALSE}
 library(flexdashboard)
 library(plotly)
+library(htmltools)
+
+htmltools::includeHTML("google-analytics.html")
 ```
 
 
@@ -53,8 +58,8 @@ library(leaflet)
 
 
 
-leitos.cnes <- fetch_datasus(year_start = 2020, month_start = 5,
-                              year_end = 2020, month_end = 5,
+leitos.cnes <- fetch_datasus(year_start = 2020, month_start = 6,
+                              year_end = 2020, month_end = 6,
                               uf = "RS",
                               information_system = "CNES-LT")
 
@@ -229,8 +234,8 @@ leitos.cnes = as.data.frame(leitos.cnes)
 #                               uf = "RS",
 #                               information_system = "CNES-EQ")
 
-equip.cnes <- fetch_datasus(year_start = 2020, month_start = 5,
-                              year_end = 2020, month_end = 5,
+equip.cnes <- fetch_datasus(year_start = 2020, month_start = 6,
+                              year_end = 2020, month_end = 6,
                               uf = "RS",
                               information_system = "CNES-EQ")
 
@@ -662,7 +667,7 @@ mapas.leitos.regsaude <- mapars.leitos %>%
 <!-- knitr::include_graphics("ArtigoLeitosRS_NOVO.pdf") -->
 <!-- ``` -->
 
-Competência: Maio/2020
+Competência: Junho/2020
 
 Mapas Regiões de Saúde e População
 =======================================================================
